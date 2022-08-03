@@ -1,44 +1,81 @@
 import torch
-from torch.utils.data import Dataset
+import json
 import os
 import cv2
 import numpy as np
+from torch.utils.data import Dataset
+from tqdm import tqdm
+from glob import glob
 
+class branch_dataset(Dataset):
+    def __init__(self, mode, angle):
+        super(branch_dataset, self).__init__()
 
-class DataSet(Dataset):
-    def __init__(self, path):
-        super(DataSet, self).__init__()
+        self.map = json.load(open(os.path.join('..','data', 'label.json'), 'r', encoding='UTF-8'))
 
-        self.data = []
-        self.label_dict = {'WDF108':0,'WDF110':1,'WDF112':2,'WDF114':3,'WDF115':4,'WDF116':5,'WDF117':6,'WDF120':7,'WDF122':8,'WDF123':9,'WDF124':10,'WDF127':11,'WDF128':12,'WDF129':13,'WJ1124':14,'WJ1125':15,'WJ1126':16,'WJ1127':17,'WJ1128':18,'WJ1129':19,'WJ1130':20,'WJ1131':21,'WJ1132':22,'WJ1133':23,'WJ1134':24,'WJ1135':25,'WJ1136':26,'WJ1137':27,'WJ1139':28,'WJ1140':29,'WJ1141':30}
-        self.labels = []
-        entries = os.listdir(path)
-        num = len(entries)
-        i = 0
-        for entry in entries:
-            if os.path.isdir(path+entry):
-                files = os.listdir(path+entry)
-                for file in files:
-                    if file.endswith('0.jpg') and not file.startswith('.'):
-                        print(str(i)+'/'+str(num))
-                        i += 1
-                        img = cv2.imread(path+entry+'/'+file)
-                        img = cv2.resize(img, (224, 224))
-                        img = torch.Tensor(img)
-                        img = np.transpose(img, (2, 0, 1))
-                        self.data.append(img)
-                        for key in self.label_dict.keys():
-                            if file.startswith(key):
-                                self.labels.append(self.label_dict[key])
-                        break
-                            # if entry.name.startswith(key) or entry.name.startswith('v'+key) or entry.name.startswith('t'+key):
-                            #     self.labels.append(self.label_dict[key])
+        self.samples = []
+        sample_files = glob(os.path.join('..', 'data', mode, '*', '*'))
+        for sample_file in tqdm(sample_files):
+            if self.map.get(sample_file.split(os.sep)[-2].split('-')[0]) is not None:
+                img_file = glob(os.path.join(sample_file, '*.jpg'))
+                img_file.extend(glob(os.path.join(sample_file, '*.JPG')))
+                if len(img_file) == 3:
+                    img_file = img_file[angle]
+                img = cv2.imdecode(np.fromfile(img_file,dtype=np.uint8),-1)
+                img = cv2.resize(img, (224, 224))
+                img = torch.Tensor(img)
+                img = np.transpose(img, (2, 0, 1))
+                label = self.map.get(sample_file.split(os.sep)[-2].split('-')[0])[2]
+                label_numpy = np.array(label)
+                label_tensor = torch.from_numpy(label_numpy)
+                self.samples.append((img, label_tensor))
+            else:
+                print('not found {} species'.format(sample_file.split(os.sep)[-2].split('-')[0]))
+                exit(0)
 
     def __getitem__(self, index):
-        return self.data[index], self.labels[index]
+        return self.samples[index]
 
     def __len__(self):
-        return len(self.data)
+        return len(self.samples)
 
     def getLabelDict(self):
-        return self.label_dict
+        return self.map
+
+class multi_dataset(Dataset):
+    def __init__(self, mode):
+        super(multi_dataset, self).__init__()
+
+        self.map = json.load(open(os.path.join('..', 'data', 'label.json'), 'r', encoding='UTF-8'))
+
+        self.samples = []
+        sample_files = glob(os.path.join('..', 'data', mode, '*', '*'))
+        for sample_file in tqdm(sample_files):
+            if self.map.get(sample_file.split(os.sep)[-2].split('-')[0]) is not None:
+                img_files = glob(os.path.join(sample_file, '*.jpg'))
+                img_files.extend(glob(os.path.join(sample_file, '*.JPG')))
+                combineImg = torch.zeros(0, 3, 224, 224)
+                for img_file in img_files:
+                    img = cv2.imdecode(np.fromfile(
+                        img_file, dtype=np.uint8), -1)
+                    img = cv2.resize(img, (224, 224))
+                    img = torch.Tensor(img)
+                    img = np.transpose(img, (2, 0, 1))
+                    combineImg = torch.cat(
+                        (combineImg, img.unsqueeze(0)), dim=0)
+                label = self.map.get(sample_file.split(os.sep)[-2].split('-')[0])[2]
+                if type(label) == list:
+                    label = torch.Tensor(label)
+                self.samples.append((combineImg, label))
+            else:
+                print('not found {} species'.format(sample_file.split(os.sep)[-2].split('-')[0]))
+                exit(0)
+
+    def __getitem__(self, index):
+        return self.samples[index]
+
+    def __len__(self):
+        return len(self.samples)
+
+    def getLabelDict(self):
+        return self.map
