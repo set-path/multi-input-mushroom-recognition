@@ -84,7 +84,7 @@ if __name__=='__main__':
                     valdataset = branch_dataset('valset', n)
                     valdataloader = DataLoader(dataset=valdataset, batch_size=6, shuffle=False)
                     testset = branch_dataset('testset', n)
-                    testdataloader = DataLoader(dataset=valdataset, batch_size=6, shuffle=False)
+                    testdataloader = DataLoader(dataset=testset, batch_size=6, shuffle=False)
 
                     model = get_branch_model(model_name, num_classes=37)
                     model = model.to(device)
